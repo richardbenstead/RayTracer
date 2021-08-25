@@ -1,0 +1,198 @@
+#pragma once
+
+// ImplicitShape base class
+class ImplicitShape
+{
+public:
+    virtual float getDistance(const Vec3f& from) const = 0; 
+    virtual ~ImplicitShape() {}
+};
+
+// Implicit sphere surface
+class Sphere : public ImplicitShape
+{
+public:
+    Sphere(const Vec3f& c, const float& r) : center(c), radius(r) {}
+    float getDistance(const Vec3f& from) const {
+        return (from - center).length() - radius;
+    }
+    const Vec3f center;
+    const float radius;
+};
+
+// Implicit plane surface
+class Plane : public ImplicitShape
+{
+public:
+    Plane(const Vec3f& _normal = Vec3f(0, 1, 0),
+          const Vec3f& pp = Vec3f(0)) : normal(_normal), pointOnPlane(pp) {}
+    float getDistance(const Vec3f& from) const {
+        return normal.x * (from.x - pointOnPlane.x) +
+               normal.y * (from.y - pointOnPlane.y) +
+               normal.z * (from.z - pointOnPlane.z);
+    }
+
+    const Vec3f normal;
+    const Vec3f pointOnPlane;
+};
+
+// Implicit torus surface
+class Torus : public ImplicitShape
+{
+public:
+    Torus(const Vec3f& _center, const float& _r0, const float& _r1) : center(_center), r0(_r0), r1(_r1) {}
+    float getDistance(const Vec3f& from) const 
+    {
+        Vec3f pointObjectSpace = from - center;
+        // reduce 3D point to 2D point
+        const float tmpx = sqrtf(pointObjectSpace.x * pointObjectSpace.x + pointObjectSpace.z * pointObjectSpace.z) - r0;
+        const float tmpy = pointObjectSpace.y;
+        
+        // distance to cicle
+        return sqrtf(tmpx * tmpx + tmpy * tmpy) - r1;
+    }
+    const Vec3f center;
+    const float r0, r1;
+};
+
+// Implicit cube surface
+class Cube : public ImplicitShape
+{
+public:
+    Cube(const Vec3f &_corner) : corner(_corner) {}
+    inline float getDistance(const Vec3f& point) const 
+    {
+        constexpr float scale = 1;
+
+        Vec3f pointObjectSpace = point * 1.f / scale;
+        pointObjectSpace.x = std::fabs(pointObjectSpace.x);
+        pointObjectSpace.y = std::fabs(pointObjectSpace.y);
+        pointObjectSpace.z = std::fabs(pointObjectSpace.z);
+        
+        // now compute the distance from the point to the surface of the object
+        Vec3f d = pointObjectSpace - corner;
+        
+        float dmaxLen = sqrt(d.x * d.x * (d.x > 0) + 
+                             d.y * d.y * (d.y > 0) + 
+                             d.z * d.z * (d.z > 0));
+        
+        // don't forget to apply the scale back
+        return scale * (std::min(std::max(d.x, std::max(d.y, d.z)), 0.f) + dmaxLen);
+    }
+    const Vec3f corner{};
+};
+
+struct unionFunc
+{
+    float operator() (float a, float b) const { return std::min(a, b); }
+};
+
+struct subtractFunc
+{
+    float operator() (float a, float b) const { return std::max(-a, b); }
+};
+
+struct intersectionFunc
+{
+    float operator() (float a, float b) const { return std::max(a, b); }
+};
+
+struct blendFunc
+{
+    blendFunc(const float &_k) : k(_k) {}
+    float operator() (float a, float b) const
+    {
+        float res = exp(-k * a) + exp(-k * b);
+        return -log(std::max(0.0001f, res)) / k;
+    }
+    float k;
+};
+
+struct mixFunc
+{
+    mixFunc(const float &_t) : t(_t) {}
+    float operator() (float a, float b) const
+    {
+        return a * (1 -t) + b * t;
+    }
+    float t;
+};
+
+// Combining implict shapes using CSG
+template<typename Op, typename S1, typename S2, typename ... Args>
+class CSG : public ImplicitShape
+{
+public:
+    CSG(
+        const S1& s1,
+        const S2& s2,
+        Args&& ... args) : op(std::forward<Args>(args) ...), shape1(s1), shape2(s2)
+    {}
+    float getDistance(const Vec3f& from) const
+    {
+        return op(shape1.getDistance(from), shape2.getDistance(from));
+    }
+    Op op;
+    const S1 shape1;
+    const S2 shape2;
+};
+
+// Blobbies
+class SoftObject : public ImplicitShape
+{
+    struct Blob
+    {
+        float R; // radius
+        Vec3f c; // blob center
+    };
+public:
+    SoftObject()
+    {
+#if 0
+        blobbies.push_back({2.0, Vec3f(-1, 0, 0)});
+        blobbies.push_back({1.5, Vec3f( 1, 0, 0)});
+#else
+        for (size_t i = 0; i < 20; ++i) {
+            float radius = (0.3 + drand48() * 1.3);
+            Vec3f c((0.5 - drand48()) * 3, (0.5 - drand48()) * 3, (0.5 - drand48()) * 3);
+            blobbies.push_back({radius, c});
+        }
+#endif
+    }
+    float getDistance(const Vec3f& from) const
+    {
+        float sumDensity = 0;
+        float sumRi = 0;
+        float minDistance = std::numeric_limits<float>::max();
+        for (const auto& blob: blobbies) {
+            float r = (blob.c - from).length();
+            if (r <=  blob.R) {
+                // this can be factored for speed if you want
+                sumDensity += 2 * (r * r * r) / (blob.R * blob.R * blob.R) -
+                    3 * (r * r) / (blob.R * blob.R) + 1;
+            }
+            minDistance = std::min(minDistance, r - blob.R);
+            sumRi += blob.R;
+        }
+
+        return std::max(minDistance, (magic - sumDensity) / ( 3 / 2.f * sumRi));
+    }
+    float magic{ 0.2 };
+    std::vector<Blob> blobbies;
+};
+
+template<typename S1, typename S2>
+using Union = CSG<unionFunc, S1, S2>;
+
+template<typename S1, typename S2>
+using Subtract = CSG<subtractFunc, S1, S2>;
+
+template<typename S1, typename S2>
+using Intersect = CSG<intersectionFunc, S1, S2>;
+
+template<typename S1, typename S2>
+using Blend = CSG<blendFunc, S1, S2, float>;
+
+template<typename S1, typename S2>
+using Mix = CSG<mixFunc, S1, S2, float>;
+
