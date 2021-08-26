@@ -1,23 +1,75 @@
 #pragma once
+#include <iostream>
+
+static constexpr float INTERSECT_TH = 1e-2; 
+static constexpr float MAX_DISTANCE = 50;
 
 // ImplicitShape base class
 class ImplicitShape
 {
 public:
-    virtual float getDistance(const Vec3f& from) const = 0; 
     virtual ~ImplicitShape() {}
+
+    virtual float getDistance(const Vec3f& from) const = 0;
+
+    // default intersection using sphere-trace
+    virtual bool intersect(const Vec3f& orig, const Vec3f& dir, float &t) const
+    {
+        float distance;
+        for(t=0; t<MAX_DISTANCE; t+=distance) {
+            Vec3f point = orig + t * dir;
+            distance = getDistance(point);
+
+            if (distance <= INTERSECT_TH * t) {
+                [[unlikely]];
+                return true;
+            }
+        }
+        return false;
+    }
+    // Method to compute the surface data such as normal and texture coordinates at the intersection point.
+    // See method implementation in children class for details
+    virtual void getSurfaceData(const Vec3f& point, Vec3f& norm, Vec3f& col) const
+    {
+        constexpr float delta = 10e-5; 
+        const float base = getDistance(point);
+        norm = Vec3f(getDistance(point + Vec3f(delta, 0, 0)) - base,
+                     getDistance(point + Vec3f(0, delta, 0)) - base,
+                     getDistance(point + Vec3f(0, 0, delta)) - base).normalize();
+        col = color;
+    }
+    Vec3f color{1,1,1};
 };
 
 // Implicit sphere surface
 class Sphere : public ImplicitShape
 {
 public:
-    Sphere(const Vec3f& c, const float& r) : center(c), radius(r) {}
+    Sphere(const Vec3f& c, const float& r) : center{c}, radius{r}, radius2{r*r} {}
     float getDistance(const Vec3f& from) const {
         return (from - center).length() - radius;
     }
+    bool intersect(const Vec3f& orig, const Vec3f& dir, float &t) const
+    {
+        const Vec3f L = center - orig; 
+        const float tca = L.dotProduct(dir);    // project L along dir to get distance to point tangental to center
+        const float d2 = L.norm() - tca * tca;  // square of distance from tangent to center via pythagoras
+        if ((d2 > radius2) || (tca < 0)) {
+            [[likely]];
+            return false; 
+        }
+        const float thc = sqrt(radius2 - d2); 
+        t = tca - thc;  // first intersect
+        return true;
+    }
+
+    void getSurfaceData(const Vec3f& point, Vec3f& norm, Vec3f& col) const
+    {
+        norm = (point - center).normalize();
+        col = color;
+    }
     const Vec3f center;
-    const float radius;
+    const float radius, radius2;
 };
 
 // Implicit plane surface
@@ -30,6 +82,14 @@ public:
         return normal.x * (from.x - pointOnPlane.x) +
                normal.y * (from.y - pointOnPlane.y) +
                normal.z * (from.z - pointOnPlane.z);
+    }
+//    bool intersect(const Vec3f& orig, const Vec3f& dir, float &t) const
+ //   {
+ //      const Vec3f L = center - orig; 
+    void getSurfaceData(const Vec3f& point, Vec3f& norm, Vec3f& col) const
+    {
+        norm = normal;
+        col = color;
     }
 
     const Vec3f normal;

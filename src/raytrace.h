@@ -94,23 +94,27 @@ public:
 class RayTrace
 {
 public:
-    static constexpr float INTERSECT_TH = 1e-4; 
     float sphereTraceShadow(const Vec3f& rayOrigin, 
                            const Vec3f& rayDirection, 
-                           const float& maxDistance)
+                           const float& maxDistance,
+                           const ImplicitShape* exclude)
     { 
         for(float minDistance, t{}; t<maxDistance; t += minDistance) {
             minDistance = std::numeric_limits<float>::max();
             const Vec3f curPoint = rayOrigin + t * rayDirection; 
             for (const auto& shape : mScene.mObjects) {
-                const float d = shape->getDistance(curPoint);
-                if (d < minDistance) {
-                    [[unlikely]];
-                    if (d <= INTERSECT_TH * t) {
+                if (shape.get() != exclude) {
+                    [[likely]];
+
+                    const float d = shape->getDistance(curPoint);
+                    if (d < minDistance) {
                         [[unlikely]];
-                        return 1.0f;
+                        if (d <= INTERSECT_TH * t) {
+                            [[unlikely]];
+                            return 1.0f;
+                        }
+                        minDistance = d;
                     }
-                    minDistance = d;
                 }
             } 
         } 
@@ -120,50 +124,46 @@ public:
 
     Vec3f sphereTrace(const Vec3f& rayOrigin, const Vec3f& rayDirection)
     {
-        constexpr float maxDistance = 50;
-        const ImplicitShape *isectShape = nullptr;
+        ImplicitShape* isectShape = nullptr;
+        float minDistance = std::numeric_limits<float>::max();
 
-        // sphereTrace to find intersection point
-        for(float minDistance, t{}; t<maxDistance; t+=minDistance) {
-            minDistance = std::numeric_limits<float>::max();
-            Vec3f point = rayOrigin + t * rayDirection;
-
-            // check all shapes for first intersection
-            for (const auto& shape : mScene.mObjects) {
-                const float d = shape->getDistance(point);
-                if (d < minDistance) {
-                    [[unlikely]];
-                    isectShape = shape.get();
-                    minDistance = d;
-                }
-            }
-            if (minDistance <= INTERSECT_TH * t) {
+        // check all shapes for first intersection
+        for (const auto& shape : mScene.mObjects) {
+            float distance;
+            if (shape->intersect(rayOrigin, rayDirection, distance) &&
+               (distance < minDistance))
+            {
                 [[unlikely]];
-                // get derivative
-                constexpr float delta = 10e-5; 
-                const float base = isectShape->getDistance(point + Vec3f{});
-                const Vec3f surfaceNorm = Vec3f(isectShape->getDistance(point + Vec3f(delta, 0, 0)) - base,
-                                                isectShape->getDistance(point + Vec3f(0, delta, 0)) - base,
-                                                isectShape->getDistance(point + Vec3f(0, 0, delta)) - base).normalize();
-             
-                // loop over all lights in the scene and add their contribution to P's brightness
-                Vec3f R{};
-                // constexpr float decayScale = 4 * M_PI;
-                constexpr float decayScale = 1/1.0f;
-                for (const auto& light: mScene.mLights) {
-                    Vec3f lightDir = light->pos - point;
-                    const float dist = lightDir.makeNormed(); 
-                    const float cosAngle = lightDir.dotProduct(surfaceNorm);
-                    if (cosAngle > 0) {
-                        [[unlikely]];
-                        // sphere trace the light source, so if we are illuminated or in shadow
-                        const float shadow = 1.0f - sphereTraceShadow(point, lightDir, dist);
-                        R += shadow * cosAngle * light->col * light->intensity / (decayScale * dist * dist); 
-                    } 
-                }
-                return R / (decayScale * t * t);
+                isectShape = shape.get();
+                minDistance = distance;
             }
         }
+        if (minDistance != std::numeric_limits<float>::max())
+        {
+            [[unlikely]];
+            Vec3f surfaceNorm;
+            Vec3f color;
+            Vec3f isectPoint = rayOrigin + minDistance * rayDirection;
+            isectShape->getSurfaceData(isectPoint, surfaceNorm, color);
+         
+            // loop over all lights in the scene and add their contribution to P's brightness
+            Vec3f R{0.5, 0.5, 0.5};
+            // constexpr float decayScale = 4 * M_PI;
+            constexpr float decayScale = 1/1.0f;
+            for (const auto& light: mScene.mLights) {
+                Vec3f lightDir = light->pos - isectPoint;
+                const float dist = lightDir.makeNormed(); 
+                const float cosAngle = lightDir.dotProduct(surfaceNorm);
+                if (cosAngle > 0) {
+                    [[unlikely]];
+                    // sphere trace the light source, so if we are illuminated or in shadow
+                    const float shadow = 1.0f - sphereTraceShadow(isectPoint, lightDir, dist, isectShape);
+                    R += shadow * cosAngle * light->col * light->intensity / (decayScale * dist * dist); 
+                }
+            }
+            return R * color / (decayScale * minDistance * minDistance);
+        }
+
         return 0; 
     }
 

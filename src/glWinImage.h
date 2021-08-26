@@ -10,7 +10,7 @@
 
 class GlWinImage
 {
-    static constexpr uint16_t IMAGE_SIZE = 500;
+    static constexpr uint16_t IMAGE_SIZE = 400;
     using ImageType = Image<IMAGE_SIZE>;
     auto POS(auto x, auto y) { return ImageType::POS(x,y); }
 
