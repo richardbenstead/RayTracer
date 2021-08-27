@@ -4,6 +4,13 @@
 static constexpr float INTERSECT_TH = 1e-2; 
 static constexpr float MAX_DISTANCE = 50;
 
+struct TextureCheck
+{
+    float getVal(const float x, const float y, const float scale=20) const {
+        return ((int8_t(x * scale) ^ int8_t(y * scale)) & 1);
+    }
+};
+
 // ImplicitShape base class
 class ImplicitShape
 {
@@ -20,6 +27,7 @@ public:
 };
 
 // Implicit sphere surface
+template<typename TEX_T=TextureCheck>
 class Sphere : public ImplicitShape
 {
 public:
@@ -42,21 +50,16 @@ public:
     void getSurfaceData([[maybe_unused]] const Vec3f& point, Vec3f& norm, Vec3f& col) const
     {
         norm = (point - center).normalize();
-        // col = color;
-    
-        float tex_x = (1 + atan2(norm.z, norm.x) / M_PI) * 0.5; 
-        float tex_y = acosf(norm.y) / M_PI;
-        
-        float scale = 20;
-        float pattern = (int8_t(tex_x * scale) ^ int8_t(tex_y * scale)) & 3;
-        col = color * pattern;
-
+        col = color * texture.getVal((1 + atan2(norm.z, norm.x) / M_PI) * 0.5,
+                                      acosf(norm.y) / M_PI);
     }
+    const TEX_T texture{};
     const Vec3f center;
     const float radius, radius2;
 };
 
 // Implicit plane surface
+template<typename TEX_T=TextureCheck>
 class Plane : public ImplicitShape
 {
 public:
@@ -69,7 +72,7 @@ public:
         // (intersect_point (p) - pointOnPlane (p)).dot(normal) = 0
         // intersect_point = (orig + dir * t) 
         // => t = (intersect point - orig).dot(normal) / dir.dot(normal)
-        float denom = dir.dotProduct(normal);
+        const float denom = dir.dotProduct(normal);
         if (denom < -1e-6) { 
             Vec3f p0l0 = pointOnPlane - orig; 
             t = p0l0.dotProduct(normal) / denom; 
@@ -80,18 +83,14 @@ public:
         return false;
     }
 
-
     void getSurfaceData([[maybe_unused]] const Vec3f& point, Vec3f& norm, Vec3f& col) const
     {
         norm = normal;
-
-        Vec3f tex = point.crossProduct(normal);
-        
-        float scale = 2;
-        float pattern = (int8_t(tex.x * scale) ^ int8_t(tex.z * scale)) & 3;
-        col = color * pattern;
+        const Vec3f tex = point.crossProduct(normal);
+        col = color * texture.getVal(tex.x, tex.z, 2);
     }
 
+    const TEX_T texture{};
     const Vec3f normal;
     const Vec3f pointOnPlane;
 };

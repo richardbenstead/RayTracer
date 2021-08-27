@@ -26,43 +26,13 @@ public:
 
 class Scene
 {
-private:
-    Matrix44f lookAt(const Vec3f& camPos, const Vec3f& to, Vec3f camUp = Vec3f(0, 1, 0))
-    {
-        // because the forward axis in a right hand coordinate system points backward we compute -(to - camPos)
-        Vec3f z = (camPos - to).normalize();  // vector in direction that camera points
-        Vec3f x = camUp.normalize().crossProduct(z).normalize();
-        Vec3f y = z.crossProduct(x);
-
-        Matrix44f camToWorld;
-
-        // set x-axis
-        camToWorld[0][0] = x[0];
-        camToWorld[0][1] = x[1];
-        camToWorld[0][2] = x[2];
-        // set y-axis
-        camToWorld[1][0] = y[0];
-        camToWorld[1][1] = y[1];
-        camToWorld[1][2] = y[2];
-        // set z-axis
-        camToWorld[2][0] = z[0];
-        camToWorld[2][1] = z[1];
-        camToWorld[2][2] = z[2];
-        // set position
-        camToWorld[3][0] = camPos[0];
-        camToWorld[3][1] = camPos[1];
-        camToWorld[3][2] = camPos[2];
-        
-        return camToWorld;
-    }
-
 public:
     Scene()
     {
-        mObjects.push_back(std::make_shared<Plane>(Vec3f(0, 1, 0), Vec3f(0, -2, 0)));
+        mObjects.push_back(std::make_shared<Plane<TextureCheck>>(Vec3f(0, 1, 0), Vec3f(0, -2, 0)));
         // mObjects.push_back(std::make_shared<Cube>(Vec3f(1.5)));
         mObjects.push_back(std::make_shared<Torus>(Vec3f(2, 0.5, 0.0), 2, 0.65));
-        mObjects.push_back(std::make_shared<Sphere>(Vec3f(-3, 0.0, 0.0), 2));
+        mObjects.push_back(std::make_shared<Sphere<TextureCheck>>(Vec3f(-3, 0.0, 0.0), 2));
         /*
         mObjects.push_back(std::make_shared<Blend>(
             std::make_shared<Cube>(Vec3f(1.5)),
@@ -73,21 +43,56 @@ public:
             */
         //mObjects.push_back(std::make_shared<SoftObject>());
 
-        mLights.push_back(std::make_unique<PointLight>(Vec3f( 30, 10,  20), Vec3f(1.0, 0.2, 0.2), 10000));
+        mLights.push_back(std::make_unique<PointLight>(Vec3f( 20, 10,  20), Vec3f(1.0, 0.2, 0.2), 10000));
         mLights.push_back(std::make_unique<PointLight>(Vec3f( 0, 10, 20), Vec3f(0.2, 1, 0.2), 5000));
-        mLights.push_back(std::make_unique<PointLight>(Vec3f( -30, 10,  20), Vec3f(0.2, 0.2, 1.0), 10000));
+        mLights.push_back(std::make_unique<PointLight>(Vec3f( -20, 10,  20), Vec3f(0.2, 0.2, 1.0), 10000));
+        mLights.push_back(std::make_unique<PointLight>(Vec3f( 0, 10,  -20), Vec3f(1, 1, 1), 10000));
 
-        mCamToWorld = lookAt(Vec3f(0, 1, 9), 0);
+        lookAt(Vec3f(0, 1, 9), 0);
     };
 
     void update(const float time)
     {
-        mCamToWorld = lookAt(Vec3f(0, 1, 2+time/10.0f), 0);
+        lookAt(Vec3f(0, 1, 2+time/10.0f), 0);
     }
 
     std::vector<std::shared_ptr<ImplicitShape>> mObjects;
     std::vector<std::unique_ptr<PointLight>> mLights;
-    Matrix44f mCamToWorld;
+    Matrix44f mCamToWorld; // normalized vectors for x,y,z orientation
+
+    void setCameraOrientation(const Vec3f& z, Vec3f camUp = Vec3f(0, 1, 0))
+    {
+        Vec3f x = camUp.normalize().crossProduct(z).normalize();
+        Vec3f y = z.crossProduct(x);
+
+        // set x-axis
+        mCamToWorld[0][0] = x[0];
+        mCamToWorld[0][1] = x[1];
+        mCamToWorld[0][2] = x[2];
+
+        // set y-axis
+        mCamToWorld[1][0] = y[0];
+        mCamToWorld[1][1] = y[1];
+        mCamToWorld[1][2] = y[2];
+
+        // set z-axis
+        mCamToWorld[2][0] = z[0];
+        mCamToWorld[2][1] = z[1];
+        mCamToWorld[2][2] = z[2];
+    }
+
+private:
+    void lookAt(const Vec3f& camPos, const Vec3f& to, Vec3f camUp = Vec3f(0, 1, 0))
+    {
+        // because the forward axis in a right hand coordinate system points backward we compute -(to - camPos)
+        Vec3f z = (camPos - to).normalize();  // vector in direction that camera points
+        setCameraOrientation(z, camUp);
+
+        // set position
+        mCamToWorld[3][0] = camPos[0];
+        mCamToWorld[3][1] = camPos[1];
+        mCamToWorld[3][2] = camPos[2];
+    }
 };
 
 
@@ -139,8 +144,7 @@ public:
          
             // loop over all lights in the scene and add their contribution to P's brightness
             Vec3f R{0.5, 0.5, 0.5};
-            // constexpr float decayScale = 4 * M_PI;
-            constexpr float decayScale = 1/1.0f;
+            constexpr float decayScale = 8.0f;
             for (const auto& light: mScene.mLights) {
                 Vec3f lightDir = light->pos - isectPoint;
                 const float dist = lightDir.makeNormed(); 
@@ -149,10 +153,10 @@ public:
                     [[unlikely]];
                     // sphere trace the light source, so if we are illuminated or in shadow
                     const float shadow = 1.0f - sphereTraceShadow(isectPoint, lightDir, dist, isectShape);
-                    R += shadow * cosAngle * light->col * light->intensity / (decayScale * dist * dist); 
+                    R += shadow * cosAngle * light->col * light->intensity / (decayScale * dist); 
                 }
             }
-            return R * color / (decayScale * minDistance * minDistance);
+            return R * color / (decayScale * minDistance);
         }
 
         return 0; 
@@ -160,11 +164,10 @@ public:
 
     void draw(auto& image)
     {
-        mScene.update(mTime++);
+        //mScene.update(mTime++);
         constexpr int16_t width = image.GRID_SIZE, height = image.GRID_SIZE;
         constexpr float ratio = width / static_cast<float>(height);
-        constexpr float fov = 60;
-        float angle = tan((fov * 0.5) / 180.f * M_PI);
+        float angle = tan((mFov * 0.5) / 180.f * M_PI);
 
         Vec3f rayOrigin = mScene.mCamToWorld.multVecMatrix(Vec3f(0));
         for (uint32_t j = 0; j < height; ++j) {
@@ -178,6 +181,44 @@ public:
         }
     }
 
+    void rotateCamera(const float moveX, const float moveY)
+    {
+        //std::cout << moveX << " " << moveY << std::endl;
+        // x move on the screen rotates the camera z to the right
+        const float fovRad = mFov * M_PI / 180.0f;
+        // set z-axis
+        Vec3f z{mScene.mCamToWorld[2][0],
+                mScene.mCamToWorld[2][1],
+                mScene.mCamToWorld[2][2]};
+        const float cosX = cos(moveX * fovRad);
+        const float sinX = sin(moveX * fovRad);
+        z.x = z.x * cosX - z.z * sinX;
+        z.z = z.x * sinX + z.z * cosX;
+
+        [[maybe_unused]] const float cosY = cos(-moveY * fovRad);
+        [[maybe_unused]] const float sinY = sin(-moveY * fovRad);
+        z.y = z.y * cosY - z.z * sinY;
+        z.z = z.y * sinY + z.z * cosY;
+        mScene.setCameraOrientation(z.normalize());
+    }
+
+    void moveCamera(const float x, const float y, const float z)
+    {
+        mScene.mCamToWorld[3][0] += x * mScene.mCamToWorld[0][0];
+        mScene.mCamToWorld[3][1] += x * mScene.mCamToWorld[0][1];
+        mScene.mCamToWorld[3][2] += x * mScene.mCamToWorld[0][2];
+
+        mScene.mCamToWorld[3][0] += y * mScene.mCamToWorld[1][0];
+        mScene.mCamToWorld[3][1] += y * mScene.mCamToWorld[1][1];
+        mScene.mCamToWorld[3][2] += y * mScene.mCamToWorld[1][2];
+
+        mScene.mCamToWorld[3][0] += z * mScene.mCamToWorld[2][0];
+        mScene.mCamToWorld[3][1] += z * mScene.mCamToWorld[2][1];
+        mScene.mCamToWorld[3][2] += z * mScene.mCamToWorld[2][2];
+    }
+
+private:
     Scene mScene;
     float mTime{};
+    float mFov{60};
 };

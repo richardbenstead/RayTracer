@@ -5,12 +5,11 @@
 #include "utils.h"
 #include <GL/gl.h>
 #include <GLFW/glfw3.h>
-#include <complex>
 #include "raytrace.h"
 
 class GlWinImage
 {
-    static constexpr uint16_t IMAGE_SIZE = 400;
+    static constexpr uint16_t IMAGE_SIZE = 500;
     using ImageType = Image<IMAGE_SIZE>;
     auto POS(auto x, auto y) { return ImageType::POS(x,y); }
 
@@ -29,6 +28,35 @@ public:
         
         glfwSwapBuffers(mpWindow);
         glfwPollEvents();
+
+        if (glfwGetKey(mpWindow, GLFW_KEY_Q) == GLFW_PRESS) {
+            [[unlikely]];
+            mQuit = true;
+        }
+        if (glfwGetKey(mpWindow, GLFW_KEY_W) == GLFW_PRESS) {
+            [[unlikely]];
+            mRayTrace.moveCamera(0,0,-0.1f);
+        }
+        if (glfwGetKey(mpWindow, GLFW_KEY_S) == GLFW_PRESS) {
+            [[unlikely]];
+            mRayTrace.moveCamera(0,0,0.1f);
+        }
+        if (glfwGetKey(mpWindow, GLFW_KEY_A) == GLFW_PRESS) {
+            [[unlikely]];
+            mRayTrace.moveCamera(-0.1f,0,0);
+        }
+        if (glfwGetKey(mpWindow, GLFW_KEY_D) == GLFW_PRESS) {
+            [[unlikely]];
+            mRayTrace.moveCamera(0.1f,0,0);
+        }
+        if (glfwGetKey(mpWindow, GLFW_KEY_R) == GLFW_PRESS) {
+            [[unlikely]];
+            mRayTrace.moveCamera(0,0.1f,0);
+        }
+        if (glfwGetKey(mpWindow, GLFW_KEY_F) == GLFW_PRESS) {
+            [[unlikely]];
+            mRayTrace.moveCamera(0,-0.1f,0);
+        }
     }
 
     bool isFinished()
@@ -51,9 +79,6 @@ public:
 
         glfwSetCursorPosCallback(mpWindow, [](GLFWwindow *window, double xpos, double ypos) {
                 static_cast<GlWinImage*>(glfwGetWindowUserPointer(window))->mouseMoveEvent(window, xpos, ypos); });
-
-        glfwSetKeyCallback(mpWindow, [](GLFWwindow* window, int key, int sc, int action, int mods) {
-                static_cast<GlWinImage*>(glfwGetWindowUserPointer(window))->keyEvent(window, key, sc, action, mods); });
     }
 
 private:
@@ -73,9 +98,10 @@ private:
             mLastMousePos = XYPair(px, py);
             mMouseLeftDown = GLFW_PRESS==action;
 
+            /*
             int width, height;
             glfwGetWindowSize(mpWindow, &width, &height);
-            /*
+
             if (mMouseLeftDown) {
                 const double gridX = std::max(0.0, std::min<double>(IMAGE_SIZE-1, IMAGE_SIZE * px / (double)width));
                 const double gridY = std::max(0.0, std::min<double>(IMAGE_SIZE-1, IMAGE_SIZE * py / (double)height));
@@ -90,16 +116,14 @@ private:
             int width, height;
             glfwGetWindowSize(mpWindow, &width, &height);
 
-            XYPair newMousePos(xpos, ypos);
-            [[maybe_unused]] XYPair delta = newMousePos - mLastMousePos;
-        }
-    }
+            const XYPair newMousePos(xpos, ypos);
+            const XYPair delta = newMousePos - mLastMousePos;
 
-    void keyEvent([[maybe_unused]] GLFWwindow *window, int key, [[maybe_unused]] int sc, int action, [[maybe_unused]] int mods)
-    {
-        if (GLFW_PRESS == action) {
-            if (key == 'Q') mQuit = true;
-            // if (key == 'R') mFrame.reset();
+            const double moveX = delta.x / width;
+            const double moveY = delta.y / height;
+            mRayTrace.rotateCamera(moveX, moveY);
+
+            mLastMousePos = newMousePos;
         }
     }
 
