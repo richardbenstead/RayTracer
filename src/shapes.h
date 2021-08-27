@@ -10,34 +10,12 @@ class ImplicitShape
 public:
     virtual ~ImplicitShape() {}
 
-    virtual float getDistance(const Vec3f& from) const = 0;
-
     // default intersection using sphere-trace
-    virtual bool intersect(const Vec3f& orig, const Vec3f& dir, float &t) const
-    {
-        float distance;
-        for(t=0; t<MAX_DISTANCE; t+=distance) {
-            Vec3f point = orig + t * dir;
-            distance = getDistance(point);
+    virtual bool intersect(const Vec3f& orig, const Vec3f& dir, float &t) const = 0;
 
-            if (distance <= INTERSECT_TH * t) {
-                [[unlikely]];
-                return true;
-            }
-        }
-        return false;
-    }
-    // Method to compute the surface data such as normal and texture coordinates at the intersection point.
-    // See method implementation in children class for details
-    virtual void getSurfaceData(const Vec3f& point, Vec3f& norm, Vec3f& col) const
-    {
-        constexpr float delta = 10e-5; 
-        const float base = getDistance(point);
-        norm = Vec3f(getDistance(point + Vec3f(delta, 0, 0)) - base,
-                     getDistance(point + Vec3f(0, delta, 0)) - base,
-                     getDistance(point + Vec3f(0, 0, delta)) - base).normalize();
-        col = color;
-    }
+    // Compute the surface data such as normal and texture coordinates at the intersection point.
+    virtual void getSurfaceData([[maybe_unused]] const Vec3f& point, Vec3f& norm, Vec3f& col) const = 0;
+
     Vec3f color{1,1,1};
 };
 
@@ -46,9 +24,7 @@ class Sphere : public ImplicitShape
 {
 public:
     Sphere(const Vec3f& c, const float& r) : center{c}, radius{r}, radius2{r*r} {}
-    float getDistance(const Vec3f& from) const {
-        return (from - center).length() - radius;
-    }
+
     bool intersect(const Vec3f& orig, const Vec3f& dir, float &t) const
     {
         const Vec3f L = center - orig; 
@@ -63,10 +39,18 @@ public:
         return true;
     }
 
-    void getSurfaceData(const Vec3f& point, Vec3f& norm, Vec3f& col) const
+    void getSurfaceData([[maybe_unused]] const Vec3f& point, Vec3f& norm, Vec3f& col) const
     {
         norm = (point - center).normalize();
-        col = color;
+        // col = color;
+    
+        float tex_x = (1 + atan2(norm.z, norm.x) / M_PI) * 0.5; 
+        float tex_y = acosf(norm.y) / M_PI;
+        
+        float scale = 20;
+        float pattern = (int8_t(tex_x * scale) ^ int8_t(tex_y * scale)) & 3;
+        col = color * pattern;
+
     }
     const Vec3f center;
     const float radius, radius2;
@@ -78,18 +62,34 @@ class Plane : public ImplicitShape
 public:
     Plane(const Vec3f& _normal = Vec3f(0, 1, 0),
           const Vec3f& pp = Vec3f(0)) : normal(_normal), pointOnPlane(pp) {}
-    float getDistance(const Vec3f& from) const {
-        return normal.x * (from.x - pointOnPlane.x) +
-               normal.y * (from.y - pointOnPlane.y) +
-               normal.z * (from.z - pointOnPlane.z);
+
+    bool intersect(const Vec3f& orig, const Vec3f& dir, float &t) const
+    {
+        // assuming vectors are all normalized
+        // (intersect_point (p) - pointOnPlane (p)).dot(normal) = 0
+        // intersect_point = (orig + dir * t) 
+        // => t = (intersect point - orig).dot(normal) / dir.dot(normal)
+        float denom = dir.dotProduct(normal);
+        if (denom < -1e-6) { 
+            Vec3f p0l0 = pointOnPlane - orig; 
+            t = p0l0.dotProduct(normal) / denom; 
+
+            return (t > 0); 
+        } 
+     
+        return false;
     }
-//    bool intersect(const Vec3f& orig, const Vec3f& dir, float &t) const
- //   {
- //      const Vec3f L = center - orig; 
-    void getSurfaceData(const Vec3f& point, Vec3f& norm, Vec3f& col) const
+
+
+    void getSurfaceData([[maybe_unused]] const Vec3f& point, Vec3f& norm, Vec3f& col) const
     {
         norm = normal;
-        col = color;
+
+        Vec3f tex = point.crossProduct(normal);
+        
+        float scale = 2;
+        float pattern = (int8_t(tex.x * scale) ^ int8_t(tex.z * scale)) & 3;
+        col = color * pattern;
     }
 
     const Vec3f normal;
@@ -110,6 +110,31 @@ public:
         
         // distance to cicle
         return sqrtf(tmpx * tmpx + tmpy * tmpy) - r1;
+    }
+    bool intersect(const Vec3f& orig, const Vec3f& dir, float &t) const
+    {
+        float distance;
+        for(t=0; t<MAX_DISTANCE; t+=distance) {
+            Vec3f point = orig + t * dir;
+            distance = getDistance(point);
+
+            if (distance <= INTERSECT_TH * t) {
+                [[unlikely]];
+                return true;
+            }
+        }
+        return false;
+    }
+    // Method to compute the surface data such as normal and texture coordinates at the intersection point.
+    // See method implementation in children class for details
+    void getSurfaceData([[maybe_unused]] const Vec3f& point, Vec3f& norm, Vec3f& col) const
+    {
+        constexpr float delta = 10e-5; 
+        const float base = getDistance(point);
+        norm = Vec3f(getDistance(point + Vec3f(delta, 0, 0)) - base,
+                     getDistance(point + Vec3f(0, delta, 0)) - base,
+                     getDistance(point + Vec3f(0, 0, delta)) - base).normalize();
+        col = color;
     }
     const Vec3f center;
     const float r0, r1;
@@ -138,6 +163,31 @@ public:
         
         // don't forget to apply the scale back
         return scale * (std::min(std::max(d.x, std::max(d.y, d.z)), 0.f) + dmaxLen);
+    }
+    bool intersect(const Vec3f& orig, const Vec3f& dir, float &t) const
+    {
+        float distance;
+        for(t=0; t<MAX_DISTANCE; t+=distance) {
+            Vec3f point = orig + t * dir;
+            distance = getDistance(point);
+
+            if (distance <= INTERSECT_TH * t) {
+                [[unlikely]];
+                return true;
+            }
+        }
+        return false;
+    }
+    // Method to compute the surface data such as normal and texture coordinates at the intersection point.
+    // See method implementation in children class for details
+    void getSurfaceData([[maybe_unused]] const Vec3f& point, Vec3f& norm, Vec3f& col) const
+    {
+        constexpr float delta = 10e-5; 
+        const float base = getDistance(point);
+        norm = Vec3f(getDistance(point + Vec3f(delta, 0, 0)) - base,
+                     getDistance(point + Vec3f(0, delta, 0)) - base,
+                     getDistance(point + Vec3f(0, 0, delta)) - base).normalize();
+        col = color;
     }
     const Vec3f corner{};
 };

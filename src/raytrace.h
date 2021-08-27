@@ -94,30 +94,21 @@ public:
 class RayTrace
 {
 public:
-    float sphereTraceShadow(const Vec3f& rayOrigin, 
+    float sphereTraceShadow(const Vec3f& rayOrigin,
                            const Vec3f& rayDirection, 
                            const float& maxDistance,
                            const ImplicitShape* exclude)
     { 
-        for(float minDistance, t{}; t<maxDistance; t += minDistance) {
-            minDistance = std::numeric_limits<float>::max();
-            const Vec3f curPoint = rayOrigin + t * rayDirection; 
-            for (const auto& shape : mScene.mObjects) {
-                if (shape.get() != exclude) {
-                    [[likely]];
-
-                    const float d = shape->getDistance(curPoint);
-                    if (d < minDistance) {
-                        [[unlikely]];
-                        if (d <= INTERSECT_TH * t) {
-                            [[unlikely]];
-                            return 1.0f;
-                        }
-                        minDistance = d;
-                    }
+        float distance;
+        for (const auto& shape : mScene.mObjects) {
+            if (shape.get() != exclude) {
+                [[likely]];
+                if ((shape->intersect(rayOrigin, rayDirection, distance)) && (distance < maxDistance)) {
+                    [[unlikely]];
+                    return 1.0f;
                 }
-            } 
-        } 
+            }
+        }
      
         return 0.0f; 
     }
