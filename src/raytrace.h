@@ -9,7 +9,9 @@
 #include <memory>
 #include "shapes.h"
 
-//TODO: Add basic textures - checkerboard/Perlin
+//TODO: Add wavelet noise textures
+// torus analytical intersect
+// cube analytical intersect
 // remove virtual functions - use homogenous vectors
 // analytic intersection and norm for spheres/planes
 // bumpmap
@@ -31,8 +33,9 @@ public:
     {
         mObjects.push_back(std::make_shared<Plane<TextureCheck>>(Vec3f(0, 1, 0), Vec3f(0, -2, 0)));
         // mObjects.push_back(std::make_shared<Cube>(Vec3f(1.5)));
-        mObjects.push_back(std::make_shared<Torus>(Vec3f(2, 0.5, 0.0), 2, 0.65));
+        // mObjects.push_back(std::make_shared<Torus>(Vec3f(2, 0.5, 0.0), 2, 0.65));
         mObjects.push_back(std::make_shared<Sphere<TextureCheck>>(Vec3f(-3, 0.0, 0.0), 2));
+        mObjects.push_back(std::make_shared<Sphere<TextureCheck>>(Vec3f(3, 0.0, 0.0), 1));
         /*
         mObjects.push_back(std::make_shared<Blend>(
             std::make_shared<Cube>(Vec3f(1.5)),
@@ -99,7 +102,7 @@ private:
 class RayTrace
 {
 public:
-    float sphereTraceShadow(const Vec3f& rayOrigin,
+    float traceShadow(const Vec3f& rayOrigin,
                            const Vec3f& rayDirection, 
                            const float& maxDistance,
                            const ImplicitShape* exclude)
@@ -118,7 +121,7 @@ public:
         return 0.0f; 
     }
 
-    Vec3f sphereTrace(const Vec3f& rayOrigin, const Vec3f& rayDirection)
+    Vec3f traceRay(const Vec3f& rayOrigin, const Vec3f& rayDirection)
     {
         ImplicitShape* isectShape = nullptr;
         float minDistance = std::numeric_limits<float>::max();
@@ -148,13 +151,19 @@ public:
             for (const auto& light: mScene.mLights) {
                 Vec3f lightDir = light->pos - isectPoint;
                 const float dist = lightDir.makeNormed(); 
+
+                // Lambertian shading. The light per unit area depends on incidence angle vs normal
                 const float cosAngle = lightDir.dotProduct(surfaceNorm);
                 if (cosAngle > 0) {
                     [[unlikely]];
                     // sphere trace the light source, so if we are illuminated or in shadow
-                    const float shadow = 1.0f - sphereTraceShadow(isectPoint, lightDir, dist, isectShape);
+                    const float shadow = 1.0f - traceShadow(isectPoint, lightDir, dist, isectShape);
                     R += shadow * cosAngle * light->col * light->intensity / (decayScale * dist); 
                 }
+
+                //albedo parameter is reflected light/incident light
+
+                // diffuse light is independent of light incident angle
             }
             return R * color / (decayScale * minDistance);
         }
@@ -175,7 +184,7 @@ public:
                 float x = (2 * i / static_cast<float>(width) - 1) * ratio * angle;
                 float y = (1 - j / static_cast<float>(height) * 2) * angle;
                 Vec3f rayDirection = mScene.mCamToWorld.multDirMatrix(Vec3f(x, y, -1).normalize());
-                Vec3f pixelColor = sphereTrace(rayOrigin, rayDirection);
+                Vec3f pixelColor = traceRay(rayOrigin, rayDirection);
                 image.image[image.POS(i, j)] = Pixel{std::min(1.0f, pixelColor[0]), std::min(1.0f, pixelColor[1]), std::min(1.0f, pixelColor[2])};
             }
         }
@@ -195,8 +204,8 @@ public:
         z.x = z.x * cosX - z.z * sinX;
         z.z = z.x * sinX + z.z * cosX;
 
-        [[maybe_unused]] const float cosY = cos(-moveY * fovRad);
-        [[maybe_unused]] const float sinY = sin(-moveY * fovRad);
+        const float cosY = cos(-moveY * fovRad);
+        const float sinY = sin(-moveY * fovRad);
         z.y = z.y * cosY - z.z * sinY;
         z.z = z.y * sinY + z.z * cosY;
         mScene.setCameraOrientation(z.normalize());
