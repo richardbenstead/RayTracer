@@ -3,8 +3,24 @@
 #include <array>
 #include <cmath>
 
+inline double fastSqrt(double x, double maxErrFrac = 0.05) {
+  if (x <= 0) {
+    return 0;
+  }
+
+  double maxErr = x * maxErrFrac;
+
+  double guess = 1.0 + (x-1) / 2;
+  double error = x - guess * guess;
+  while (fabs(error) > maxErr) {
+    guess = (guess + x / guess) / 2;
+    error = x - guess * guess;
+  }
+  return guess;
+}
+
 struct XYPair {
-  XYPair operator*(const float f) const { return XYPair{x * f, y * f}; }
+  XYPair operator*(const double f) const { return XYPair{x * f, y * f}; }
   XYPair operator-(const XYPair &xy) const {
     return XYPair{x - xy.x, y - xy.y};
   }
@@ -16,13 +32,13 @@ struct XYPair {
     y += xy.y;
     return *this;
   }
-  float norm() const { return sqrt(x * x + y * y); }
+  double norm() const { return sqrt(x * x + y * y); }
 
-  float x{}, y{};
+  double x{}, y{};
 };
 
 struct Pixel {
-  Pixel operator*(const float f) const { return Pixel{r * f, g * f, b * f}; }
+  Pixel operator*(const double f) const { return Pixel{(float)(r * f), (float)(g * f), (float)(b * f)}; }
   Pixel operator+(const Pixel &pix) const {
     return Pixel{r + pix.r, g + pix.g, b + pix.b};
   }

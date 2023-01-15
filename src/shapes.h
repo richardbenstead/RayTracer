@@ -24,8 +24,10 @@ public:
   virtual bool intersect(const Vec3d &orig, const Vec3d &dir, double &t) const = 0;
 
   // Compute the surface data such as normal and texture coordinates at the intersection point.
-  virtual void getSurfaceData([[maybe_unused]] const Vec3d &point, Vec3d &norm,
-                              Vec3d &col) const = 0;
+  virtual void getSurfaceData([[maybe_unused]] const Vec3d &point, Vec3d &normal, Vec3d &col) const = 0;
+
+  // only needed by marching cubes
+  virtual double getDistance(const Vec3d &from) const = 0;
 
   Vec3d color{1, 1, 1};
 };
@@ -34,29 +36,34 @@ public:
 template <typename TEX_T = TextureCheck> class Sphere : public ImplicitShape {
 public:
   Sphere(const Vec3d &c, const double &r)
-      : center{c}, radius{r}, radius2{r * r} {}
+      : center{c}, radius{r}, radius2{r * r} {
+      }
+
+  double getDistance(const Vec3d &from) const {
+      return (from - center).norm() - radius;
+  }
 
   bool intersect(const Vec3d &orig, const Vec3d &dir, double &t) const {
     const Vec3d L = center - orig;
-    const double tca = L.dotProduct(dir); // project L along dir to get distance
-                                         // to point tangental to center
-    const double d2 =
-        L.norm() -
-        tca * tca; // square of distance from tangent to center via pythagoras
-    if ((d2 > radius2) || (tca < 0)) {
-      [[likely]];
-      return false;
+
+    // project L along dir to get distance to point tangental to center
+    const double tca = dir.dot(L);
+    if (tca >= 0) {
+        // square of distance from tangent to center via pythagoras
+        const double d2 = L.squaredNorm() - tca * tca;
+        if (d2 <= radius2) {
+            const double thc = fastSqrt(radius2 - d2);
+            t = tca - thc; // first intersect
+            return true;
+        }
     }
-    const double thc = sqrt(radius2 - d2);
-    t = tca - thc; // first intersect
-    return true;
+    return false;
   }
 
-  void getSurfaceData([[maybe_unused]] const Vec3d &point, Vec3d &norm,
-                      Vec3d &col) const {
-    norm = (point - center).normalize();
-    col = color * texture.getVal((1 + atan2(norm.z, norm.x) / M_PI) * 0.5,
-                                 acosf(norm.y) / M_PI);
+  void getSurfaceData([[maybe_unused]] const Vec3d &point, Vec3d &normal, Vec3d &col) const {
+    normal = (point - center).normalized();
+    col = color * texture.getVal((1 + atan2(normal[2], normal[0]) / M_PI) * 0.5,
+                                 acosf(normal[1]) / M_PI);
   }
   const TEX_T texture{};
   const Vec3d center;
@@ -74,10 +81,11 @@ public:
     // (intersect_point (p) - pointOnPlane (p)).dot(normal) = 0
     // intersect_point = (orig + dir * t)
     // => t = (intersect point - orig).dot(normal) / dir.dot(normal)
-    const double denom = dir.dotProduct(normal);
+    const double denom = dir.dot(normal);
+    // std::cout << "check plane, denom: " << denom << std::endl;
     if (denom < -1e-6) {
       Vec3d p0l0 = pointOnPlane - orig;
-      t = p0l0.dotProduct(normal) / denom;
+      t = p0l0.dot(normal) / denom;
       return (t > 0);
     }
 
@@ -87,33 +95,26 @@ public:
   void getSurfaceData([[maybe_unused]] const Vec3d &point, Vec3d &norm,
                       Vec3d &col) const {
     norm = normal;
-    const Vec3d tex = point.crossProduct(normal);
-    col = color * texture.getVal(tex.x, tex.z, 2);
+    const Vec3d tex = point.cross(normal);
+    col = color * texture.getVal(tex[0], tex[2], 2);
   }
+
+  double getDistance(const Vec3d&) const {
+      return 0;
+  }
+
 
   const TEX_T texture{};
   const Vec3d normal;
   const Vec3d pointOnPlane;
 };
 
-// Implicit torus surface
-class Torus : public ImplicitShape {
-public:
-  Torus(const Vec3d &_center, const double &_r0, const double &_r1)
-      : center(_center), r0(_r0), r1(_r1) {}
-  double getDistance(const Vec3d &from) const {
-    Vec3d pointObjectSpace = from - center;
-    // reduce 3D point to 2D point
-    const double tmpx = sqrtf(pointObjectSpace.x * pointObjectSpace.x +
-                             pointObjectSpace.z * pointObjectSpace.z) -
-                       r0;
-    const double tmpy = pointObjectSpace.y;
 
-    // distance to cicle
-    return sqrtf(tmpx * tmpx + tmpy * tmpy) - r1;
-  }
-  bool intersect(const Vec3d &orig, const Vec3d &dir, double &t) const {
-    double distance;
+class MarchingCubeImplicitShape : public ImplicitShape
+{
+    public:
+  virtual bool intersect(const Vec3d &orig, const Vec3d &dir, double &t) const {
+    double distance = 0;
     for (t = 0; t < MAX_DISTANCE; t += distance) {
       Vec3d point = orig + t * dir;
       distance = getDistance(point);
@@ -125,70 +126,63 @@ public:
     }
     return false;
   }
+
   // Method to compute the surface data such as normal and texture coordinates
   // at the intersection point. See method implementation in children class for
   // details
-  void getSurfaceData([[maybe_unused]] const Vec3d &point, Vec3d &norm,
+  virtual void getSurfaceData([[maybe_unused]] const Vec3d &point, Vec3d &normal,
                       Vec3d &col) const {
     constexpr double delta = 10e-5;
     const double base = getDistance(point);
-    norm = Vec3d(getDistance(point + Vec3d(delta, 0, 0)) - base,
+    normal = Vec3d(getDistance(point + Vec3d(delta, 0, 0)) - base,
                  getDistance(point + Vec3d(0, delta, 0)) - base,
                  getDistance(point + Vec3d(0, 0, delta)) - base)
-               .normalize();
+               .normalized();
     col = color;
   }
+};
+
+// Implicit torus surface
+class Torus : public MarchingCubeImplicitShape {
+public:
+  Torus(const Vec3d &_center, const double &_r0, const double &_r1)
+      : center(_center), r0(_r0), r1(_r1) {}
+  virtual double getDistance(const Vec3d &from) const {
+    Vec3d pointObjectSpace = from - center;
+    // reduce 3D point to 2D point
+    const double tmpx = fastSqrt(pointObjectSpace[0] * pointObjectSpace[0] +
+                             pointObjectSpace[2] * pointObjectSpace[2]) -
+                       r0;
+    const double tmpy = pointObjectSpace[1];
+
+    // distance to cicle
+    return fastSqrt(tmpx * tmpx + tmpy * tmpy) - r1;
+  }
+
   const Vec3d center;
   const double r0, r1;
 };
 
+
 // Implicit cube surface
-class Cube : public ImplicitShape {
+class Cube : public MarchingCubeImplicitShape {
 public:
   Cube(const Vec3d &_corner) : corner(_corner) {}
-  inline double getDistance(const Vec3d &point) const {
-    constexpr double scale = 1;
+  virtual double getDistance(const Vec3d &point) const {
+    constexpr double scale = 1.0;
+    constexpr double invScale = 1.0/scale;
 
-    Vec3d pointObjectSpace = point * 1.f / scale;
-    pointObjectSpace.x = std::fabs(pointObjectSpace.x);
-    pointObjectSpace.y = std::fabs(pointObjectSpace.y);
-    pointObjectSpace.z = std::fabs(pointObjectSpace.z);
+    Vec3d const pointObjectSpace = (point * 1.0 * invScale).cwiseAbs();
 
     // now compute the distance from the point to the surface of the object
     Vec3d d = pointObjectSpace - corner;
 
-    double dmaxLen = sqrt(d.x * d.x * (d.x > 0) + d.y * d.y * (d.y > 0) +
-                         d.z * d.z * (d.z > 0));
+    double dmaxLen = fastSqrt(d[0] * d[0] * (d[0] > 0) + d[1] * d[1] * (d[1] > 0) + d[2] * d[2] * (d[2] > 0));
 
     // don't forget to apply the scale back
-    return scale * (std::min(std::max(d.x, std::max(d.y, d.z)), 0.f) + dmaxLen);
+    return scale * (std::min(std::max(d[0], std::max(d[1], d[2])), 0.0) + dmaxLen);
   }
-  bool intersect(const Vec3d &orig, const Vec3d &dir, double &t) const {
-    double distance;
-    for (t = 0; t < MAX_DISTANCE; t += distance) {
-      Vec3d point = orig + t * dir;
-      distance = getDistance(point);
 
-      if (distance <= INTERSECT_TH * t) {
-        [[unlikely]];
-        return true;
-      }
-    }
-    return false;
-  }
-  // Method to compute the surface data such as normal and texture coordinates
-  // at the intersection point. See method implementation in children class for
-  // details
-  void getSurfaceData([[maybe_unused]] const Vec3d &point, Vec3d &norm,
-                      Vec3d &col) const {
-    constexpr double delta = 10e-5;
-    const double base = getDistance(point);
-    norm = Vec3d(getDistance(point + Vec3d(delta, 0, 0)) - base,
-                 getDistance(point + Vec3d(0, delta, 0)) - base,
-                 getDistance(point + Vec3d(0, 0, delta)) - base)
-               .normalize();
-    col = color;
-  }
   const Vec3d corner{};
 };
 
@@ -208,7 +202,7 @@ struct blendFunc {
   blendFunc(const double &_k) : k(_k) {}
   double operator()(double a, double b) const {
     double res = exp(-k * a) + exp(-k * b);
-    return -log(std::max(0.0001f, res)) / k;
+    return -log(std::max(0.0001, res)) / k;
   }
   double k;
 };
@@ -221,7 +215,7 @@ struct mixFunc {
 
 // Combining implict shapes using CSG
 template <typename Op, typename S1, typename S2, typename... Args>
-class CSG : public ImplicitShape {
+class CSG : public MarchingCubeImplicitShape {
 public:
   CSG(const S1 &s1, const S2 &s2, Args &&... args)
       : op(std::forward<Args>(args)...), shape1(s1), shape2(s2) {}
@@ -259,7 +253,7 @@ public:
     double sumRi = 0;
     double minDistance = std::numeric_limits<double>::max();
     for (const auto &blob : blobbies) {
-      double r = (blob.c - from).length();
+      double r = (blob.c - from).norm();
       if (r <= blob.R) {
         // this can be factored for speed if you want
         sumDensity += 2 * (r * r * r) / (blob.R * blob.R * blob.R) -
