@@ -10,7 +10,7 @@ inline double fastSqrt(double x, double maxErrFrac = 0.05) {
 
   double maxErr = x * maxErrFrac;
 
-  double guess = 1.0 + (x-1) / 2;
+  double guess = 1.0 + (x - 1) / 2;
   double error = x - guess * guess;
   while (fabs(error) > maxErr) {
     guess = (guess + x / guess) / 2;
@@ -38,7 +38,9 @@ struct XYPair {
 };
 
 struct Pixel {
-  Pixel operator*(const double f) const { return Pixel{(float)(r * f), (float)(g * f), (float)(b * f)}; }
+  Pixel operator*(const double f) const {
+    return Pixel{(float)(r * f), (float)(g * f), (float)(b * f)};
+  }
   Pixel operator+(const Pixel &pix) const {
     return Pixel{r + pix.r, g + pix.g, b + pix.b};
   }
